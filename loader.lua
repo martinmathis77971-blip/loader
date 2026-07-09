@@ -1,4 +1,4 @@
-local BASE = "https://restreintest2.onrender.com"
+local BASE = "https://restreint-panel2.onrender.com"
 local KEY  = "xenooooo"
 
 local Players = game:GetService("Players")
