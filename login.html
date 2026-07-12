@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Restreint · v3 grey</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23a78bfa'%3E%3Cpath d='M12 2l2.39 6.96L21.5 9.5l-5.5 4.27L18 21l-6-4-6 4 2-7.23L2.5 9.5l7.11-.54L12 2z'/%3E%3C/svg%3E" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: #050508;
+      color: #e4e4e7;
+      overflow: hidden;
+    }
+
+    .bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        linear-gradient(165deg, #2e1065 0%, #1a0a2e 18%, #10081c 38%, #0a0b0f 62%, #050508 100%),
+        radial-gradient(ellipse 100% 70% at 50% -5%, rgba(139, 92, 246, 0.35), transparent 55%),
+        radial-gradient(ellipse 55% 45% at 95% 85%, rgba(109, 40, 217, 0.18), transparent 50%),
+        radial-gradient(ellipse 45% 40% at 5% 75%, rgba(124, 58, 237, 0.12), transparent 45%);
+    }
+
+    .grid {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 20%, transparent 80%);
+      pointer-events: none;
+    }
+
+    .card {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 400px;
+      margin: 1.5rem;
+      padding: 2.25rem 2rem 2rem;
+      border-radius: 1rem;
+      border: 1px solid #1c1d26;
+      background: #101118;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+      animation: fadeUp 0.5s ease-out;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .logo svg { color: #a78bfa; width: 1.25rem; height: 1.25rem; }
+
+    .logo span {
+      font-size: 1.125rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: #fff;
+    }
+
+    .badge {
+      display: block;
+      margin: 0 auto 1.5rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 0.375rem;
+      border: 1px solid #2a2b38;
+      background: #181922;
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: #a1a1aa;
+      text-align: center;
+      width: fit-content;
+    }
+
+    .subtitle {
+      text-align: center;
+      font-size: 0.82rem;
+      color: #71717a;
+      margin-bottom: 1.75rem;
+      line-height: 1.5;
+    }
+
+    label {
+      display: block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #71717a;
+      margin-bottom: 0.5rem;
+    }
+
+    .input-wrap {
+      position: relative;
+      margin-bottom: 1.25rem;
+    }
+
+    .input-wrap input {
+      width: 100%;
+      padding: 0.7rem 2.75rem 0.7rem 0.9rem;
+      border-radius: 0.5rem;
+      border: 1px solid #1f2029;
+      background: #0c0d12;
+      color: #e4e4e7;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .input-wrap input:focus {
+      border-color: rgba(139, 92, 246, 0.5);
+      box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.3);
+    }
+
+    .input-wrap input::placeholder { color: #52525b; }
+
+    .toggle-pw {
+      position: absolute;
+      right: 0.65rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: #52525b;
+      cursor: pointer;
+      padding: 0.25rem;
+      font-size: 0.75rem;
+      transition: color 0.15s;
+    }
+
+    .toggle-pw:hover { color: #a78bfa; }
+
+    .error {
+      display: none;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 0.75rem;
+      margin-bottom: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      background: rgba(244, 63, 94, 0.08);
+      color: #fda4af;
+      font-size: 0.8rem;
+      animation: shake 0.35s ease;
+    }
+
+    .error.show { display: flex; }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25%       { transform: translateX(-6px); }
+      75%       { transform: translateX(6px); }
+    }
+
+    button[type="submit"] {
+      width: 100%;
+      padding: 0.7rem;
+      border: 1px solid #26272f;
+      border-radius: 0.5rem;
+      background: #16171f;
+      color: #e4e4e7;
+      font-size: 0.875rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    button[type="submit"]:hover:not(:disabled) {
+      background: #1b1c25;
+      border-color: rgba(139, 92, 246, 0.4);
+      color: #fff;
+    }
+
+    button[type="submit"]:active:not(:disabled) { transform: scale(0.98); }
+
+    button[type="submit"]:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .footer {
+      margin-top: 1.5rem;
+      text-align: center;
+      font-size: 0.7rem;
+      color: #3f3f46;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 0.9rem;
+      height: 0.9rem;
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #a78bfa;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.4rem;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="grid"></div>
+
+  <div class="card">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 2l2.39 6.96L21.5 9.5l-5.5 4.27L18 21l-6-4-6 4 2-7.23L2.5 9.5l7.11-.54L12 2z"/>
+      </svg>
+      <span>Restreint</span>
+    </div>
+    <span class="badge">v3 · grey</span>
+    <p class="subtitle">Entre ton mot de passe pour accéder au panel.</p>
+
+    <form id="form">
+      <label for="password">Mot de passe</label>
+      <div class="input-wrap">
+        <input
+          id="password"
+          type="password"
+          placeholder="••••••••"
+          autocomplete="current-password"
+          required
+          autofocus
+        />
+        <button type="button" class="toggle-pw" id="togglePw" aria-label="Afficher le mot de passe">Voir</button>
+      </div>
+
+      <div class="error" id="error">
+        <span>✗</span>
+        <span id="errorMsg">Mot de passe incorrect</span>
+      </div>
+
+      <button type="submit" id="submitBtn">Accéder au panel</button>
+    </form>
+
+    <p class="footer">Session sécurisée · cookie HttpOnly</p>
+  </div>
+
+  <script>
+    const form = document.getElementById("form");
+    const password = document.getElementById("password");
+    const error = document.getElementById("error");
+    const errorMsg = document.getElementById("errorMsg");
+    const submitBtn = document.getElementById("submitBtn");
+    const togglePw = document.getElementById("togglePw");
+
+    fetch("/api/auth/status", { credentials: "include" })
+      .then((res) => { if (res.ok) window.location.href = "/"; })
+      .catch(() => {});
+
+    togglePw.addEventListener("click", () => {
+      const hidden = password.type === "password";
+      password.type = hidden ? "text" : "password";
+      togglePw.textContent = hidden ? "Masquer" : "Voir";
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      error.classList.remove("show");
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner"></span>Connexion…';
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ password: password.value }),
+        });
+
+        if (res.ok) {
+          submitBtn.innerHTML = "✓ Accès autorisé";
+          window.location.href = "/";
+          return;
+        }
+
+        const data = await res.json().catch(() => ({}));
+        errorMsg.textContent = data.error === "not configured"
+          ? "Mot de passe non configuré sur le serveur"
+          : "Mot de passe incorrect";
+        error.classList.add("show");
+        password.select();
+      } catch {
+        errorMsg.textContent = "Erreur réseau, réessaie";
+        error.classList.add("show");
+      }
+
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Accéder au panel";
+    });
+  </script>
+</body>
+</html>
