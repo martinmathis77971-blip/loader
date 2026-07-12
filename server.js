@@ -167,6 +167,17 @@ app.post('/api/dashboard/command', requireSiteAuth, applyCommand);
 
 app.post('/api/public/command', auth, applyCommand);
 
+const removePlayerById = (req, res) => {
+    const id = String(req.params.userId || "");
+    if (!id) return res.status(400).json({ error: "missing user_id" });
+    players.delete(id);
+    commands.delete(id);
+    res.json({ ok: true });
+};
+
+app.delete('/api/dashboard/players/:userId', requireSiteAuth, removePlayerById);
+app.delete('/api/players/:userId', auth, removePlayerById);
+
 // --- AUTH SITE (login.html + SITE_PASSWORD) ---
 
 app.get("/api/auth/status", (req, res) => {
