@@ -391,20 +391,6 @@ local function setInvertControls(on)
     end)
 end
 
-local function stripTools()
-    local function wipe(container)
-        if not container then return end
-        for _, child in ipairs(container:GetChildren()) do
-            if child:IsA("Tool") or child:IsA("HopperBin") then
-                pcall(function() child:Destroy() end)
-            end
-        end
-    end
-    wipe(LP:FindFirstChild("Backpack"))
-    wipe(LP:FindFirstChild("StarterGear"))
-    wipe(LP.Character)
-end
-
 local blackGui = nil
 local blackLightingSaved = nil
 local blackCoreSaved = nil
@@ -695,9 +681,6 @@ local function poll()
         if data.kick == true and not kicked then
             kicked = true
             LP:Kick("You have been removed for cheating, please remove any cheats to play | CODE: BAC-1633")
-        end
-        if data.strip_tools == true then
-            stripTools()
         end
     else
         bootPollDone = true
