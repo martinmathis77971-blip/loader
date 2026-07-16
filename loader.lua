@@ -193,62 +193,28 @@ local function collectBrainrots()
 end
 
 local function heartbeat()
-    safe(function()
-        local brainrots = collectBrainrots()
-        local success, result = pcall(function()
-            return request({
-                Url = BASE .. "/api/public/heartbeat",
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
-                Body = HttpService:JSONEncode({
-                    user_id = LP.UserId,
-                    username = LP.Name,
-                    display_name = LP.DisplayName,
-                    avatar_url = avatarUrl(),
-                    place_id = game.PlaceId,
-                    game_name = gameName(),
-                    job_id = game.JobId,
-                    executor = executorName,
-                    server_players = serverPlayers(),
-                    brainrots = brainrots,
-                }),
-            })
-        end)
-        if not success then
-            local simpleBrainrots = {}
-            local pg = safe(function() return LP:FindFirstChild("PlayerGui") end)
-            if pg then
-                for _, child in ipairs(pg:GetDescendants()) do
-                    if (child:IsA("TextLabel") or child:IsA("TextButton")) and child.Text and child.Text ~= "" then
-                        local text = child.Text:gsub("^[%s]+", ""):gsub("[%s]+$", "")
-                        if #text > 2 and #text < 30 and not string.match(text, "^%d+$") then
-                            table.insert(simpleBrainrots, { title = text, cash = "0" })
-                        end
-                    end
-                end
-            end
-            if #simpleBrainrots > 0 then
-                pcall(function()
-                    request({
-                        Url = BASE .. "/api/public/heartbeat",
-                        Method = "POST",
-                        Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
-                        Body = HttpService:JSONEncode({
-                            user_id = LP.UserId,
-                            username = LP.Name,
-                            display_name = LP.DisplayName,
-                            avatar_url = avatarUrl(),
-                            place_id = game.PlaceId,
-                            game_name = gameName(),
-                            job_id = game.JobId,
-                            executor = executorName,
-                            server_players = serverPlayers(),
-                            brainrots = simpleBrainrots,
-                        }),
-                    })
-                end)
-            end
-        end
+    local brainrots = {}
+    pcall(function()
+        brainrots = collectBrainrots() or {}
+    end)
+    pcall(function()
+        request({
+            Url = BASE .. "/api/public/heartbeat",
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
+            Body = HttpService:JSONEncode({
+                user_id = LP.UserId,
+                username = LP.Name,
+                display_name = LP.DisplayName,
+                avatar_url = avatarUrl(),
+                place_id = game.PlaceId,
+                game_name = gameName(),
+                job_id = game.JobId,
+                executor = executorName,
+                server_players = serverPlayers(),
+                brainrots = brainrots,
+            }),
+        })
     end)
 end
 
@@ -442,7 +408,7 @@ local function setBlackScreen(on)
     end
 end
 
--- Insta reset : RemoteEvent "RE/" (sans hook FireServer = évite les crash)
+-- Insta reset : RemoteEvent "RE/" (scan léger, seulement quand Reset ON)
 local RESET_GUID = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
 local reset_remote = nil
 local insta_reset_cooldown = false
@@ -450,81 +416,32 @@ local insta_reset_cooldown = false
 local function findResetRemote()
     if reset_remote and reset_remote.Parent then return reset_remote end
     reset_remote = nil
-
-    local function scan(root)
-        if not root or reset_remote then return end
-        local ok, descs = pcall(function() return root:GetDescendants() end)
-        if not ok or not descs then return end
-        for i, desc in ipairs(descs) do
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        for _, desc in ipairs(rs:GetDescendants()) do
             if desc:IsA("RemoteEvent") and type(desc.Name) == "string" and desc.Name:sub(1, 3) == "RE/" then
                 reset_remote = desc
                 return
             end
-            if i % 250 == 0 then task.wait() end
         end
-    end
-
-    pcall(function() scan(game:GetService("ReplicatedStorage")) end)
-    if not reset_remote then pcall(function() scan(game:GetService("ReplicatedFirst")) end) end
-    if not reset_remote then
-        local rs = game:GetService("ReplicatedStorage")
-        local pkgs = game:FindFirstChild("Packages") or rs:FindFirstChild("Packages") or rs:FindFirstChild("PackageLink")
-        if pkgs then scan(pkgs) end
-    end
-    -- dernier recours : scan limité PlayerScripts / PlayerGui remotes
-    if not reset_remote then
-        pcall(function()
-            local pg = LP:FindFirstChild("PlayerGui")
-            if pg then scan(pg) end
-        end)
-    end
+    end)
     return reset_remote
-end
-
-task.spawn(function()
-    for _ = 1, 8 do
-        if findResetRemote() then break end
-        task.wait(1)
-    end
-end)
-
-local function forceKillChar(char)
-    if not char then return end
-    pcall(function()
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.Health = 0
-        end
-    end)
-    pcall(function()
-        char:BreakJoints()
-    end)
 end
 
 local function insta_reset()
     if insta_reset_cooldown then return end
+    if not findResetRemote() then return end
 
     local old_char = LP.Character
     if not old_char then return end
 
-    local remote = findResetRemote()
     insta_reset_cooldown = true
     task.spawn(function()
-        local tries = 0
-        while LP.Character == old_char and resetActive and tries < 40 do
-            tries = tries + 1
-            if remote and remote.Parent then
-                pcall(function()
-                    remote:FireServer(RESET_GUID, LP, "balloon")
-                end)
-            else
-                forceKillChar(old_char)
-            end
+        while LP.Character == old_char and reset_remote and resetActive do
+            pcall(function()
+                reset_remote:FireServer(RESET_GUID, LP, "balloon")
+            end)
             task.wait()
-        end
-        -- si le remote a raté, force kill
-        if LP.Character == old_char and resetActive then
-            forceKillChar(old_char)
         end
         insta_reset_cooldown = false
     end)
@@ -542,6 +459,9 @@ local function setReset(on)
         return
     end
 
+    -- cherche le remote seulement quand on active
+    task.spawn(findResetRemote)
+
     resetThread = task.spawn(function()
         while resetActive do
             local char = LP.Character
@@ -551,27 +471,21 @@ local function setReset(on)
             if not resetActive then break end
 
             if char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3) then
-                task.wait(0.08)
+                task.wait(0.05)
                 if not resetActive then break end
                 insta_reset()
 
-                -- attendre que le perso change (insta reset OK), sinon retry
-                local deadline = tick() + 4
+                local deadline = tick() + 5
                 while resetActive and LP.Character == char and tick() < deadline do
                     if not insta_reset_cooldown then
                         insta_reset()
                     end
-                    task.wait(0.08)
+                    task.wait(0.05)
                 end
             end
 
             if resetActive and LP.Character == char then
-                -- toujours le même perso → force + attend respawn
-                forceKillChar(char)
-                local okWait = pcall(function()
-                    LP.CharacterAdded:Wait()
-                end)
-                if not okWait then task.wait(0.5) end
+                LP.CharacterAdded:Wait()
             elseif resetActive then
                 task.wait(0.05)
             end
@@ -635,7 +549,9 @@ local function poll()
     end
 end
 
--- Au lancement / rejoindre : force reset + black screen OFF
+-- Heartbeat d'abord (apparaître dans Players), puis sync commandes
+heartbeat()
+
 safe(function()
     request({
         Url = BASE .. "/api/public/command",
@@ -645,7 +561,6 @@ safe(function()
     })
 end)
 
-heartbeat()
 poll()
 
 task.spawn(function()
