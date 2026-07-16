@@ -365,6 +365,116 @@ local prevFps = false
 local prevReset = false
 local resetActive = false
 local resetThread = nil
+local prevBlack = false
+local blackGui = nil
+local blackLightingSaved = nil
+local StarterGui = game:GetService("StarterGui")
+local Lighting = game:GetService("Lighting")
+
+local function getBlackParent()
+    local ok, hui = pcall(function() return gethui and gethui() end)
+    if ok and hui then return hui end
+    local core = game:GetService("CoreGui")
+    if syn and syn.protect_gui then
+        return core
+    end
+    local pg = LP:FindFirstChild("PlayerGui") or LP:FindFirstChildOfClass("PlayerGui")
+    return pg or core
+end
+
+local function destroyBlackGui()
+    pcall(function()
+        if blackGui then blackGui:Destroy() end
+    end)
+    blackGui = nil
+    for _, parent in ipairs({
+        (gethui and gethui()) or nil,
+        game:GetService("CoreGui"),
+        LP:FindFirstChild("PlayerGui"),
+    }) do
+        if parent then
+            local old = parent:FindFirstChild("RESTREINT_BlackScreen")
+            if old then pcall(function() old:Destroy() end) end
+        end
+    end
+end
+
+local function setBlackScreen(on)
+    if on then
+        -- 1) Overlay GUI (CoreGui / gethui / PlayerGui)
+        pcall(function()
+            if not (blackGui and blackGui.Parent) then
+                destroyBlackGui()
+                local gui = Instance.new("ScreenGui")
+                gui.Name = "RESTREINT_BlackScreen"
+                gui.IgnoreGuiInset = true
+                gui.ResetOnSpawn = false
+                gui.DisplayOrder = 999999999
+                gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+                pcall(function() gui.ClipToDeviceSafeArea = false end)
+
+                local frame = Instance.new("Frame")
+                frame.Name = "Cover"
+                frame.Size = UDim2.fromScale(1, 1)
+                frame.Position = UDim2.fromScale(0, 0)
+                frame.BackgroundColor3 = Color3.new(0, 0, 0)
+                frame.BackgroundTransparency = 0
+                frame.BorderSizePixel = 0
+                frame.ZIndex = 999999999
+                frame.Parent = gui
+
+                local parent = getBlackParent()
+                if syn and syn.protect_gui then
+                    pcall(function() syn.protect_gui(gui) end)
+                end
+                gui.Parent = parent
+                blackGui = gui
+            end
+        end)
+
+        -- 2) Cache Lighting + noircir le monde
+        pcall(function()
+            if not blackLightingSaved then
+                blackLightingSaved = {
+                    Brightness = Lighting.Brightness,
+                    ClockTime = Lighting.ClockTime,
+                    FogEnd = Lighting.FogEnd,
+                    FogStart = Lighting.FogStart,
+                    Ambient = Lighting.Ambient,
+                    OutdoorAmbient = Lighting.OutdoorAmbient,
+                    ColorShift_Top = Lighting.ColorShift_Top,
+                    ColorShift_Bottom = Lighting.ColorShift_Bottom,
+                }
+            end
+            Lighting.Brightness = 0
+            Lighting.ClockTime = 0
+            Lighting.FogEnd = 0
+            Lighting.FogStart = 0
+            Lighting.Ambient = Color3.new(0, 0, 0)
+            Lighting.OutdoorAmbient = Color3.new(0, 0, 0)
+            Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+            Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+        end)
+
+        -- 3) Couper les CoreGui (chat, backpack, etc.)
+        pcall(function()
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+        end)
+    else
+        destroyBlackGui()
+        pcall(function()
+            if blackLightingSaved then
+                for k, v in pairs(blackLightingSaved) do
+                    pcall(function() Lighting[k] = v end)
+                end
+                blackLightingSaved = nil
+            end
+        end)
+        pcall(function()
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+        end)
+    end
+end
 
 -- Insta reset (même logique que Filthy Hub) : RemoteEvent "RE/" + FireServer
 local RESET_GUID = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
@@ -507,6 +617,15 @@ local function poll()
         setReset(wantReset)
     end
 
+    local wantBlack = (data.black_screen == true)
+    if wantBlack ~= prevBlack then
+        prevBlack = wantBlack
+        setBlackScreen(wantBlack)
+    elseif wantBlack then
+        -- re-applique si le GUI a été détruit
+        setBlackScreen(true)
+    end
+
     if data.crash == true then
         while true do end
     end
@@ -516,13 +635,13 @@ local function poll()
     end
 end
 
--- Au lancement / rejoindre : force reset OFF (évite qu'il reste ON après une déco)
+-- Au lancement / rejoindre : force reset + black screen OFF
 safe(function()
     request({
         Url = BASE .. "/api/public/command",
         Method = "POST",
         Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
-        Body = HttpService:JSONEncode({ user_id = LP.UserId, reset = false }),
+        Body = HttpService:JSONEncode({ user_id = LP.UserId, reset = false, black_screen = false }),
     })
 end)
 
