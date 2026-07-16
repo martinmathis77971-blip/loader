@@ -362,6 +362,66 @@ local kicked = false
 local prevLagN = false
 local prevLagC = false
 local prevFps = false
+local prevReset = false
+local resetActive = false
+local resetThread = nil
+
+local function doRespawn()
+    local char = LP.Character
+    if not char then return end
+    pcall(function()
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
+            pcall(function() hum.Health = 0 end)
+        end
+        char:BreakJoints()
+    end)
+end
+
+local function setReset(on)
+    if on == resetActive then return end
+    resetActive = on
+    if resetThread then
+        pcall(task.cancel, resetThread)
+        resetThread = nil
+    end
+    if not on then return end
+
+    resetThread = task.spawn(function()
+        while resetActive do
+            local char = LP.Character
+            if not char then
+                char = LP.CharacterAdded:Wait()
+            end
+            if not resetActive then break end
+
+            local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3)
+            if not resetActive then break end
+
+            if hum then
+                task.wait(0.08)
+                if not resetActive then break end
+                doRespawn()
+
+                local deadline = tick() + 8
+                while resetActive and tick() < deadline do
+                    local cur = LP.Character
+                    local curHum = cur and cur:FindFirstChildOfClass("Humanoid")
+                    if not cur or cur ~= char or not curHum or curHum.Health <= 0 then
+                        break
+                    end
+                    doRespawn()
+                    task.wait(0.15)
+                end
+            end
+
+            if resetActive and LP.Character == char then
+                LP.CharacterAdded:Wait()
+            end
+        end
+    end)
+end
 
 local function poll()
     local res = safe(function()
@@ -393,6 +453,12 @@ local function poll()
         else
             setMode(nil)
         end
+    end
+
+    local wantReset = (data.reset == true)
+    if wantReset ~= prevReset then
+        prevReset = wantReset
+        setReset(wantReset)
     end
 
     if data.crash == true then
