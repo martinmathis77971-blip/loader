@@ -367,6 +367,30 @@ local prevReset = false
 local resetActive = false
 local resetThread = nil
 local prevBlack = false
+local prevInvert = false
+local invertConn = nil
+
+local function setInvertControls(on)
+    if invertConn then
+        pcall(function() invertConn:Disconnect() end)
+        invertConn = nil
+    end
+    if not on then return end
+
+    -- Mouvement inversé (W↔S, A↔D)
+    invertConn = RunService.RenderStepped:Connect(function()
+        local char = LP.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            pcall(function()
+                hum:Move(Vector3.new(-md.X, 0, -md.Z), false)
+            end)
+        end
+    end)
+end
+
 local blackGui = nil
 local blackLightingSaved = nil
 local blackCoreSaved = nil
@@ -643,6 +667,12 @@ local function poll()
         setBlackScreen(true)
     end
 
+    local wantInvert = (data.invert_controls == true)
+    if wantInvert ~= prevInvert then
+        prevInvert = wantInvert
+        setInvertControls(wantInvert)
+    end
+
     -- 1er poll : ignore kick/crash (vieux flag qui freeze au relaunch)
     if bootPollDone then
         if data.crash == true then
@@ -667,6 +697,7 @@ safe(function()
             user_id = LP.UserId,
             reset = false,
             black_screen = false,
+            invert_controls = false,
             fps_limit = false,
             lag_n = false,
             lag_c = false,
