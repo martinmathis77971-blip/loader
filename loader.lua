@@ -470,6 +470,16 @@ local function poll()
     end
 end
 
+-- Au lancement / rejoindre : force reset OFF (évite qu'il reste ON après une déco)
+safe(function()
+    request({
+        Url = BASE .. "/api/public/command",
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/json", ["X-Api-Key"] = KEY },
+        Body = HttpService:JSONEncode({ user_id = LP.UserId, reset = false }),
+    })
+end)
+
 heartbeat()
 poll()
 
