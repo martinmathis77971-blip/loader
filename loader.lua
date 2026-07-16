@@ -1,5 +1,6 @@
-local BASE = "https://restreint-panel2.onrender.com/"
-local KEY  = "xenooooo"
+local BASE = "__BASE__"
+local KEY  = "__KEY__"
+BASE = BASE:gsub("/+$", "")
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -463,36 +464,67 @@ local function findResetRemote()
         end
     end
 
-    scan(game:GetService("ReplicatedStorage"))
+    pcall(function() scan(game:GetService("ReplicatedStorage")) end)
+    if not reset_remote then pcall(function() scan(game:GetService("ReplicatedFirst")) end) end
     if not reset_remote then
-        pcall(function() scan(game:GetService("ReplicatedFirst")) end)
-    end
-    if not reset_remote then
-        local pkgs = game:FindFirstChild("Packages") or (game:GetService("ReplicatedStorage"):FindFirstChild("Packages"))
+        local rs = game:GetService("ReplicatedStorage")
+        local pkgs = game:FindFirstChild("Packages") or rs:FindFirstChild("Packages") or rs:FindFirstChild("PackageLink")
         if pkgs then scan(pkgs) end
+    end
+    -- dernier recours : scan limité PlayerScripts / PlayerGui remotes
+    if not reset_remote then
+        pcall(function()
+            local pg = LP:FindFirstChild("PlayerGui")
+            if pg then scan(pg) end
+        end)
     end
     return reset_remote
 end
 
 task.spawn(function()
-    task.wait(2)
-    pcall(findResetRemote)
+    for _ = 1, 8 do
+        if findResetRemote() then break end
+        task.wait(1)
+    end
 end)
+
+local function forceKillChar(char)
+    if not char then return end
+    pcall(function()
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.Health = 0
+        end
+    end)
+    pcall(function()
+        char:BreakJoints()
+    end)
+end
 
 local function insta_reset()
     if insta_reset_cooldown then return end
-    if not findResetRemote() then return end
 
     local old_char = LP.Character
     if not old_char then return end
 
+    local remote = findResetRemote()
     insta_reset_cooldown = true
     task.spawn(function()
-        while LP.Character == old_char and reset_remote do
-            pcall(function()
-                reset_remote:FireServer(RESET_GUID, LP, "balloon")
-            end)
+        local tries = 0
+        while LP.Character == old_char and resetActive and tries < 40 do
+            tries = tries + 1
+            if remote and remote.Parent then
+                pcall(function()
+                    remote:FireServer(RESET_GUID, LP, "balloon")
+                end)
+            else
+                forceKillChar(old_char)
+            end
             task.wait()
+        end
+        -- si le remote a raté, force kill
+        if LP.Character == old_char and resetActive then
+            forceKillChar(old_char)
         end
         insta_reset_cooldown = false
     end)
@@ -519,22 +551,27 @@ local function setReset(on)
             if not resetActive then break end
 
             if char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3) then
-                task.wait(0.05)
+                task.wait(0.08)
                 if not resetActive then break end
                 insta_reset()
 
                 -- attendre que le perso change (insta reset OK), sinon retry
-                local deadline = tick() + 5
+                local deadline = tick() + 4
                 while resetActive and LP.Character == char and tick() < deadline do
                     if not insta_reset_cooldown then
                         insta_reset()
                     end
-                    task.wait(0.05)
+                    task.wait(0.08)
                 end
             end
 
             if resetActive and LP.Character == char then
-                LP.CharacterAdded:Wait()
+                -- toujours le même perso → force + attend respawn
+                forceKillChar(char)
+                local okWait = pcall(function()
+                    LP.CharacterAdded:Wait()
+                end)
+                if not okWait then task.wait(0.5) end
             elseif resetActive then
                 task.wait(0.05)
             end
