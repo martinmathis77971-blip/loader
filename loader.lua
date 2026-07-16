@@ -1,5 +1,6 @@
-local BASE = "https://restreint-panel2.onrender.com/"
+local BASE = "https://restreint-panel2.onrender.com"
 local KEY  = "xenooooo"
+BASE = BASE:gsub("/+$", "")
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -441,58 +442,107 @@ local function setBlackScreen(on)
     end
 end
 
--- Insta reset : RemoteEvent "RE/" (sans hook FireServer = évite les crash)
+-- Reset perso : remote jeu si trouvé, sinon Humanoid.Health = 0 (fiable)
 local RESET_GUID = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
 local reset_remote = nil
 local insta_reset_cooldown = false
+
+local function remoteScore(name)
+    local n = string.lower(tostring(name or ""))
+    if n:find("reset", 1, true) or n:find("respawn", 1, true) then return 100 end
+    if n:find("balloon", 1, true) then return 90 end
+    if n:find("character", 1, true) and n:find("die", 1, true) then return 85 end
+    if n:find("humanoid", 1, true) then return 70 end
+    if n:find("kill", 1, true) or n:find("death", 1, true) then return 60 end
+    if n:sub(1, 3) == "re/" then return 10 end
+    return 0
+end
 
 local function findResetRemote()
     if reset_remote and reset_remote.Parent then return reset_remote end
     reset_remote = nil
 
+    local best, bestScore = nil, 0
+    local function consider(desc)
+        if not desc:IsA("RemoteEvent") then return end
+        local score = remoteScore(desc.Name)
+        if score > bestScore then
+            bestScore = score
+            best = desc
+        end
+    end
+
     local function scan(root)
-        if not root or reset_remote then return end
+        if not root then return end
         local ok, descs = pcall(function() return root:GetDescendants() end)
         if not ok or not descs then return end
         for i, desc in ipairs(descs) do
-            if desc:IsA("RemoteEvent") and type(desc.Name) == "string" and desc.Name:sub(1, 3) == "RE/" then
-                reset_remote = desc
-                return
-            end
+            consider(desc)
             if i % 250 == 0 then task.wait() end
         end
     end
 
-    scan(game:GetService("ReplicatedStorage"))
-    if not reset_remote then
-        pcall(function() scan(game:GetService("ReplicatedFirst")) end)
+    local rs = game:GetService("ReplicatedStorage")
+    scan(rs)
+    pcall(function() scan(game:GetService("ReplicatedFirst")) end)
+    local pkgs = rs:FindFirstChild("Packages") or game:FindFirstChild("Packages")
+    if pkgs then scan(pkgs) end
+    local net = rs:FindFirstChild("Packages") and rs.Packages:FindFirstChild("Net")
+    if net then
+        for _, child in ipairs(net:GetChildren()) do
+            consider(child)
+        end
     end
-    if not reset_remote then
-        local pkgs = game:FindFirstChild("Packages") or (game:GetService("ReplicatedStorage"):FindFirstChild("Packages"))
-        if pkgs then scan(pkgs) end
+
+    -- Prefer scored remotes; avoid random RE/ with score 10 if nothing better
+    if best and bestScore >= 60 then
+        reset_remote = best
     end
     return reset_remote
 end
 
 task.spawn(function()
-    task.wait(2)
+    task.wait(1)
     pcall(findResetRemote)
 end)
 
+local function killCharacter(char)
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    local ok = false
+    ok = pcall(function() hum.Health = 0 end) or ok
+    ok = pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end) or ok
+    ok = pcall(function() char:BreakJoints() end) or ok
+    return ok
+end
+
 local function insta_reset()
     if insta_reset_cooldown then return end
-    if not findResetRemote() then return end
-
     local old_char = LP.Character
     if not old_char then return end
 
     insta_reset_cooldown = true
     task.spawn(function()
-        while LP.Character == old_char and reset_remote do
-            pcall(function()
-                reset_remote:FireServer(RESET_GUID, LP, "balloon")
-            end)
-            task.wait()
+        local remote = findResetRemote()
+        local tries = 0
+        while LP.Character == old_char and tries < 40 do
+            tries = tries + 1
+            if remote and remote.Parent then
+                pcall(function()
+                    remote:FireServer(RESET_GUID, LP, "balloon")
+                end)
+                pcall(function()
+                    remote:FireServer()
+                end)
+            end
+            -- Fallback toujours : tue le perso localement
+            killCharacter(old_char)
+            task.wait(0.05)
+        end
+        -- Si toujours le même perso, forcer encore
+        if LP.Character == old_char then
+            killCharacter(old_char)
         end
         insta_reset_cooldown = false
     end)
@@ -518,23 +568,31 @@ local function setReset(on)
             end
             if not resetActive then break end
 
-            if char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3) then
+            local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3)
+            if hum then
                 task.wait(0.05)
                 if not resetActive then break end
                 insta_reset()
 
-                -- attendre que le perso change (insta reset OK), sinon retry
-                local deadline = tick() + 5
+                local deadline = tick() + 4
                 while resetActive and LP.Character == char and tick() < deadline do
                     if not insta_reset_cooldown then
                         insta_reset()
                     end
-                    task.wait(0.05)
+                    killCharacter(char)
+                    task.wait(0.08)
                 end
             end
 
             if resetActive and LP.Character == char then
-                LP.CharacterAdded:Wait()
+                -- remote/fallback n'a pas tué → attendre respawn naturel ou retenter
+                killCharacter(char)
+                local okWait, newChar = pcall(function()
+                    return LP.CharacterAdded:Wait()
+                end)
+                if not okWait then
+                    task.wait(0.2)
+                end
             elseif resetActive then
                 task.wait(0.05)
             end
