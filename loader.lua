@@ -369,12 +369,43 @@ local resetThread = nil
 local prevBlack = false
 local blackGui = nil
 local blackLightingSaved = nil
+local blackCoreSaved = nil
+local blackActive = false
+local blackCoreThread = nil
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 
+local CORE_GUI_TYPES = {
+    Enum.CoreGuiType.Backpack,
+    Enum.CoreGuiType.PlayerList,
+    Enum.CoreGuiType.Chat,
+    Enum.CoreGuiType.EmotesMenu,
+    Enum.CoreGuiType.Health,
+}
+
+local function suppressCoreGui()
+    for _, t in ipairs(CORE_GUI_TYPES) do
+        pcall(function() StarterGui:SetCoreGuiEnabled(t, false) end)
+    end
+    pcall(function() StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false) end)
+end
+
 local function setBlackScreen(on)
     if on then
-        -- Overlay PlayerGui (pas CoreGui = moins de crash)
+        blackActive = true
+
+        -- Sauvegarde l'état CoreGui (pour ne pas forcer l'ancienne hotbar au OFF)
+        if not blackCoreSaved then
+            blackCoreSaved = {}
+            for _, t in ipairs(CORE_GUI_TYPES) do
+                local ok, enabled = pcall(function()
+                    return StarterGui:GetCoreGuiEnabled(t)
+                end)
+                blackCoreSaved[t] = ok and enabled or false
+            end
+        end
+
+        -- Overlay PlayerGui
         pcall(function()
             if blackGui and blackGui.Parent then return end
             local pg = LP:FindFirstChild("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
@@ -417,10 +448,21 @@ local function setBlackScreen(on)
             Lighting.OutdoorAmbient = Color3.new(0, 0, 0)
         end)
 
-        pcall(function()
-            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
-        end)
+        suppressCoreGui()
+
+        -- Le jeu re-active souvent la hotbar → on la re-coupe en boucle
+        if not blackCoreThread then
+            blackCoreThread = task.spawn(function()
+                while blackActive do
+                    suppressCoreGui()
+                    task.wait(0.15)
+                end
+                blackCoreThread = nil
+            end)
+        end
     else
+        blackActive = false
+
         pcall(function()
             if blackGui then blackGui:Destroy() end
             blackGui = nil
@@ -428,6 +470,7 @@ local function setBlackScreen(on)
             local old = pg and pg:FindFirstChild("RESTREINT_BlackScreen")
             if old then old:Destroy() end
         end)
+
         pcall(function()
             if blackLightingSaved then
                 for k, v in pairs(blackLightingSaved) do
@@ -436,9 +479,14 @@ local function setBlackScreen(on)
                 blackLightingSaved = nil
             end
         end)
-        pcall(function()
-            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
-        end)
+
+        -- Restaure UNIQUEMENT l'état d'avant — PAS All=true (ça ramène l'ancienne toolbar)
+        if blackCoreSaved then
+            for t, enabled in pairs(blackCoreSaved) do
+                pcall(function() StarterGui:SetCoreGuiEnabled(t, enabled) end)
+            end
+            blackCoreSaved = nil
+        end
     end
 end
 
