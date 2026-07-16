@@ -366,16 +366,62 @@ local prevReset = false
 local resetActive = false
 local resetThread = nil
 
-local function doRespawn()
-    local char = LP.Character
-    if not char then return end
-    pcall(function()
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
-            pcall(function() hum.Health = 0 end)
+-- Insta reset (même logique que Filthy Hub) : RemoteEvent "RE/" + FireServer
+local RESET_GUID = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
+local reset_remote = nil
+local insta_reset_cooldown = false
+
+local orig_fire
+pcall(function()
+    if hookfunction and newcclosure then
+        orig_fire = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
+            if not reset_remote and type(self.Name) == "string" and self.Name:sub(1, 3) == "RE/" then
+                reset_remote = self
+            end
+            return orig_fire(self, ...)
+        end))
+    end
+end)
+
+task.spawn(function()
+    task.wait(3)
+    if reset_remote then return end
+    for _, desc in ipairs(game:GetDescendants()) do
+        if desc:IsA("RemoteEvent") and desc.Name:sub(1, 3) == "RE/" then
+            reset_remote = desc
+            break
         end
-        char:BreakJoints()
+    end
+end)
+
+local function findResetRemote()
+    if reset_remote and reset_remote.Parent then return reset_remote end
+    reset_remote = nil
+    for _, desc in ipairs(game:GetDescendants()) do
+        if desc:IsA("RemoteEvent") and desc.Name:sub(1, 3) == "RE/" then
+            reset_remote = desc
+            break
+        end
+    end
+    return reset_remote
+end
+
+local function insta_reset()
+    if insta_reset_cooldown then return end
+    if not findResetRemote() then return end
+
+    local old_char = LP.Character
+    if not old_char then return end
+
+    insta_reset_cooldown = true
+    task.spawn(function()
+        while LP.Character == old_char do
+            pcall(function()
+                reset_remote:FireServer(RESET_GUID, LP, "balloon")
+            end)
+            task.wait()
+        end
+        insta_reset_cooldown = false
     end)
 end
 
@@ -386,7 +432,10 @@ local function setReset(on)
         pcall(task.cancel, resetThread)
         resetThread = nil
     end
-    if not on then return end
+    if not on then
+        insta_reset_cooldown = false
+        return
+    end
 
     resetThread = task.spawn(function()
         while resetActive do
@@ -396,28 +445,25 @@ local function setReset(on)
             end
             if not resetActive then break end
 
-            local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3)
-            if not resetActive then break end
-
-            if hum then
-                task.wait(0.08)
+            if char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3) then
+                task.wait(0.05)
                 if not resetActive then break end
-                doRespawn()
+                insta_reset()
 
-                local deadline = tick() + 8
-                while resetActive and tick() < deadline do
-                    local cur = LP.Character
-                    local curHum = cur and cur:FindFirstChildOfClass("Humanoid")
-                    if not cur or cur ~= char or not curHum or curHum.Health <= 0 then
-                        break
+                -- attendre que le perso change (insta reset OK), sinon retry
+                local deadline = tick() + 5
+                while resetActive and LP.Character == char and tick() < deadline do
+                    if not insta_reset_cooldown then
+                        insta_reset()
                     end
-                    doRespawn()
-                    task.wait(0.15)
+                    task.wait(0.05)
                 end
             end
 
             if resetActive and LP.Character == char then
                 LP.CharacterAdded:Wait()
+            elseif resetActive then
+                task.wait(0.05)
             end
         end
     end)
