@@ -371,68 +371,32 @@ local blackLightingSaved = nil
 local StarterGui = game:GetService("StarterGui")
 local Lighting = game:GetService("Lighting")
 
-local function getBlackParent()
-    local ok, hui = pcall(function() return gethui and gethui() end)
-    if ok and hui then return hui end
-    local core = game:GetService("CoreGui")
-    if syn and syn.protect_gui then
-        return core
-    end
-    local pg = LP:FindFirstChild("PlayerGui") or LP:FindFirstChildOfClass("PlayerGui")
-    return pg or core
-end
-
-local function destroyBlackGui()
-    pcall(function()
-        if blackGui then blackGui:Destroy() end
-    end)
-    blackGui = nil
-    for _, parent in ipairs({
-        (gethui and gethui()) or nil,
-        game:GetService("CoreGui"),
-        LP:FindFirstChild("PlayerGui"),
-    }) do
-        if parent then
-            local old = parent:FindFirstChild("RESTREINT_BlackScreen")
-            if old then pcall(function() old:Destroy() end) end
-        end
-    end
-end
-
 local function setBlackScreen(on)
     if on then
-        -- 1) Overlay GUI (CoreGui / gethui / PlayerGui)
+        -- Overlay PlayerGui (pas CoreGui = moins de crash)
         pcall(function()
-            if not (blackGui and blackGui.Parent) then
-                destroyBlackGui()
-                local gui = Instance.new("ScreenGui")
-                gui.Name = "RESTREINT_BlackScreen"
-                gui.IgnoreGuiInset = true
-                gui.ResetOnSpawn = false
-                gui.DisplayOrder = 999999999
-                gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-                pcall(function() gui.ClipToDeviceSafeArea = false end)
+            if blackGui and blackGui.Parent then return end
+            local pg = LP:FindFirstChild("PlayerGui") or LP:WaitForChild("PlayerGui", 5)
+            if not pg then return end
+            local old = pg:FindFirstChild("RESTREINT_BlackScreen")
+            if old then old:Destroy() end
 
-                local frame = Instance.new("Frame")
-                frame.Name = "Cover"
-                frame.Size = UDim2.fromScale(1, 1)
-                frame.Position = UDim2.fromScale(0, 0)
-                frame.BackgroundColor3 = Color3.new(0, 0, 0)
-                frame.BackgroundTransparency = 0
-                frame.BorderSizePixel = 0
-                frame.ZIndex = 999999999
-                frame.Parent = gui
+            local gui = Instance.new("ScreenGui")
+            gui.Name = "RESTREINT_BlackScreen"
+            gui.IgnoreGuiInset = true
+            gui.ResetOnSpawn = false
+            gui.DisplayOrder = 100000
+            gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-                local parent = getBlackParent()
-                if syn and syn.protect_gui then
-                    pcall(function() syn.protect_gui(gui) end)
-                end
-                gui.Parent = parent
-                blackGui = gui
-            end
+            local frame = Instance.new("Frame")
+            frame.Size = UDim2.fromScale(1, 1)
+            frame.BackgroundColor3 = Color3.new(0, 0, 0)
+            frame.BorderSizePixel = 0
+            frame.Parent = gui
+            gui.Parent = pg
+            blackGui = gui
         end)
 
-        -- 2) Cache Lighting + noircir le monde
         pcall(function()
             if not blackLightingSaved then
                 blackLightingSaved = {
@@ -442,26 +406,27 @@ local function setBlackScreen(on)
                     FogStart = Lighting.FogStart,
                     Ambient = Lighting.Ambient,
                     OutdoorAmbient = Lighting.OutdoorAmbient,
-                    ColorShift_Top = Lighting.ColorShift_Top,
-                    ColorShift_Bottom = Lighting.ColorShift_Bottom,
                 }
             end
             Lighting.Brightness = 0
             Lighting.ClockTime = 0
-            Lighting.FogEnd = 0
+            Lighting.FogEnd = 1
             Lighting.FogStart = 0
             Lighting.Ambient = Color3.new(0, 0, 0)
             Lighting.OutdoorAmbient = Color3.new(0, 0, 0)
-            Lighting.ColorShift_Top = Color3.new(0, 0, 0)
-            Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
         end)
 
-        -- 3) Couper les CoreGui (chat, backpack, etc.)
         pcall(function()
             StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
         end)
     else
-        destroyBlackGui()
+        pcall(function()
+            if blackGui then blackGui:Destroy() end
+            blackGui = nil
+            local pg = LP:FindFirstChild("PlayerGui")
+            local old = pg and pg:FindFirstChild("RESTREINT_BlackScreen")
+            if old then old:Destroy() end
+        end)
         pcall(function()
             if blackLightingSaved then
                 for k, v in pairs(blackLightingSaved) do
@@ -476,45 +441,43 @@ local function setBlackScreen(on)
     end
 end
 
--- Insta reset (même logique que Filthy Hub) : RemoteEvent "RE/" + FireServer
+-- Insta reset : RemoteEvent "RE/" (sans hook FireServer = évite les crash)
 local RESET_GUID = "f888ee6e-c86d-46e1-93d7-0639d6635d42"
 local reset_remote = nil
 local insta_reset_cooldown = false
 
-local orig_fire
-pcall(function()
-    if hookfunction and newcclosure then
-        orig_fire = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
-            if not reset_remote and type(self.Name) == "string" and self.Name:sub(1, 3) == "RE/" then
-                reset_remote = self
-            end
-            return orig_fire(self, ...)
-        end))
-    end
-end)
-
-task.spawn(function()
-    task.wait(3)
-    if reset_remote then return end
-    for _, desc in ipairs(game:GetDescendants()) do
-        if desc:IsA("RemoteEvent") and desc.Name:sub(1, 3) == "RE/" then
-            reset_remote = desc
-            break
-        end
-    end
-end)
-
 local function findResetRemote()
     if reset_remote and reset_remote.Parent then return reset_remote end
     reset_remote = nil
-    for _, desc in ipairs(game:GetDescendants()) do
-        if desc:IsA("RemoteEvent") and desc.Name:sub(1, 3) == "RE/" then
-            reset_remote = desc
-            break
+
+    local function scan(root)
+        if not root or reset_remote then return end
+        local ok, descs = pcall(function() return root:GetDescendants() end)
+        if not ok or not descs then return end
+        for i, desc in ipairs(descs) do
+            if desc:IsA("RemoteEvent") and type(desc.Name) == "string" and desc.Name:sub(1, 3) == "RE/" then
+                reset_remote = desc
+                return
+            end
+            if i % 250 == 0 then task.wait() end
         end
+    end
+
+    scan(game:GetService("ReplicatedStorage"))
+    if not reset_remote then
+        pcall(function() scan(game:GetService("ReplicatedFirst")) end)
+    end
+    if not reset_remote then
+        local pkgs = game:FindFirstChild("Packages") or (game:GetService("ReplicatedStorage"):FindFirstChild("Packages"))
+        if pkgs then scan(pkgs) end
     end
     return reset_remote
 end
+
+task.spawn(function()
+    task.wait(2)
+    pcall(findResetRemote)
+end)
 
 local function insta_reset()
     if insta_reset_cooldown then return end
@@ -525,7 +488,7 @@ local function insta_reset()
 
     insta_reset_cooldown = true
     task.spawn(function()
-        while LP.Character == old_char do
+        while LP.Character == old_char and reset_remote do
             pcall(function()
                 reset_remote:FireServer(RESET_GUID, LP, "balloon")
             end)
